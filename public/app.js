@@ -148,6 +148,14 @@ function displayFiles(files) {
                 </div>
             </div>
             <div class="file-actions">
+                ${isDicomFile(file.originalName) ? `
+                    <button class="btn btn-view" onclick="viewFile('${file.filename}', '${escapeHtml(file.originalName)}')">
+                        2D查看
+                    </button>
+                    <button class="btn btn-view3d" onclick="view3DFile('${file.filename}', '${escapeHtml(file.originalName)}')">
+                        3D重建
+                    </button>
+                ` : ''}
                 <button class="btn btn-download" onclick="downloadFile('${file.filename}', '${escapeHtml(file.originalName)}')">
                     下载
                 </button>
@@ -237,4 +245,23 @@ function escapeHtml(text) {
         "'": '&#039;'
     };
     return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+// 判断是否为DICOM文件
+function isDicomFile(filename) {
+    const ext = filename.toLowerCase();
+    return ext.endsWith('.dcm') ||
+           ext.endsWith('.dicom') ||
+           ext.endsWith('.nii') ||
+           ext.endsWith('.nii.gz');
+}
+
+// 2D查看文件
+function viewFile(filename, originalName) {
+    window.open(`viewer.html?file=${encodeURIComponent(filename)}`, '_blank');
+}
+
+// 3D查看文件
+function view3DFile(filename, originalName) {
+    window.open(`viewer3d.html?file=${encodeURIComponent(filename)}`, '_blank');
 }

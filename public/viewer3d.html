@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D重建查看器 - 术前规划系统</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+        }
+
+        .viewer-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .viewer-header {
+            background: #1f2937;
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+        }
+
+        .viewer-title {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .viewer-title h1 {
+            font-size: 1.2em;
+            margin: 0;
+        }
+
+        .file-name {
+            font-size: 0.9em;
+            color: #9ca3af;
+        }
+
+        .viewer-toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .tool-btn {
+            background: #374151;
+            border: 1px solid #4b5563;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.3s;
+        }
+
+        .tool-btn:hover {
+            background: #4b5563;
+            border-color: #6b7280;
+        }
+
+        .tool-btn.active {
+            background: #2563eb;
+            border-color: #3b82f6;
+        }
+
+        .btn-back {
+            background: #6b7280;
+            border: 1px solid #9ca3af;
+        }
+
+        .btn-back:hover {
+            background: #9ca3af;
+        }
+
+        .viewer-main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .viewer-3d-grid {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 2px;
+            background: #111;
+            padding: 2px;
+        }
+
+        .view-panel {
+            position: relative;
+            background: #000;
+            overflow: hidden;
+        }
+
+        .view-panel canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        .view-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #60a5fa;
+            font-size: 0.9em;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        .viewer-sidebar {
+            width: 300px;
+            background: #1f2937;
+            color: white;
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: -2px 0 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .controls-section {
+            margin-bottom: 25px;
+        }
+
+        .controls-section h3 {
+            font-size: 1em;
+            color: #60a5fa;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #374151;
+            padding-bottom: 8px;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-label {
+            display: block;
+            font-size: 0.85em;
+            color: #9ca3af;
+            margin-bottom: 8px;
+        }
+
+        .slider {
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            background: #374151;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #2563eb;
+            cursor: pointer;
+        }
+
+        .slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #2563eb;
+            cursor: pointer;
+            border: none;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.2em;
+            z-index: 1000;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #374151;
+            border-top-color: #2563eb;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            color: #ef4444;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .preset-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .preset-btn {
+            background: #374151;
+            border: 1px solid #4b5563;
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: all 0.3s;
+        }
+
+        .preset-btn:hover {
+            background: #4b5563;
+        }
+    </style>
+    <!-- Three.js -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.150.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.150.0/examples/js/controls/TrackballControls.js"></script>
+    <!-- AMI.js -->
+    <script src="https://cdn.jsdelivr.net/npm/ami.js@0.32.0/build/ami.min.js"></script>
+</head>
+<body>
+    <div class="viewer-container">
+        <div class="viewer-header">
+            <div class="viewer-title">
+                <h1>3D重建查看器</h1>
+                <span class="file-name" id="fileName">加载中...</span>
+            </div>
+            <div class="viewer-toolbar">
+                <button class="tool-btn active" id="rotateBtn">旋转</button>
+                <button class="tool-btn" id="resetViewBtn">重置视图</button>
+                <button class="tool-btn btn-back" onclick="window.location.href='/'">返回</button>
+            </div>
+        </div>
+
+        <div class="viewer-main">
+            <div class="viewer-3d-grid">
+                <div class="view-panel" id="axialView">
+                    <div class="view-label">轴位 (Axial)</div>
+                </div>
+                <div class="view-panel" id="sagittalView">
+                    <div class="view-label">矢状位 (Sagittal)</div>
+                </div>
+                <div class="view-panel" id="coronalView">
+                    <div class="view-label">冠状位 (Coronal)</div>
+                </div>
+                <div class="view-panel" id="render3dView">
+                    <div class="view-label">3D重建</div>
+                </div>
+            </div>
+
+            <div class="viewer-sidebar">
+                <div class="controls-section">
+                    <h3>窗口预设</h3>
+                    <div class="preset-buttons">
+                        <button class="preset-btn" onclick="applyPreset('bone')">骨窗</button>
+                        <button class="preset-btn" onclick="applyPreset('soft')">软组织</button>
+                        <button class="preset-btn" onclick="applyPreset('lung')">肺窗</button>
+                        <button class="preset-btn" onclick="applyPreset('brain')">脑窗</button>
+                    </div>
+                </div>
+
+                <div class="controls-section">
+                    <h3>窗宽窗位</h3>
+
+                    <div class="control-group">
+                        <label class="control-label">窗宽: <span id="wwValue">400</span></label>
+                        <input type="range" class="slider" id="windowWidthSlider"
+                               min="1" max="4000" value="400" step="10">
+                    </div>
+
+                    <div class="control-group">
+                        <label class="control-label">窗位: <span id="wcValue">40</span></label>
+                        <input type="range" class="slider" id="windowCenterSlider"
+                               min="-1000" max="1000" value="40" step="10">
+                    </div>
+                </div>
+
+                <div class="controls-section">
+                    <h3>3D渲染</h3>
+
+                    <div class="control-group">
+                        <label class="control-label">不透明度: <span id="opacityValue">1.0</span></label>
+                        <input type="range" class="slider" id="opacitySlider"
+                               min="0" max="1" value="1" step="0.05">
+                    </div>
+
+                    <div class="control-group">
+                        <label class="control-label">阈值: <span id="thresholdValue">500</span></label>
+                        <input type="range" class="slider" id="thresholdSlider"
+                               min="-1000" max="2000" value="500" step="50">
+                    </div>
+                </div>
+
+                <div class="controls-section">
+                    <h3>说明</h3>
+                    <div style="font-size: 0.8em; color: #9ca3af; line-height: 1.6;">
+                        <p>• 拖拽鼠标旋转视图</p>
+                        <p>• 滚轮缩放</p>
+                        <p>• 右键平移</p>
+                        <p>• 使用预设快速切换常见窗口</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading-overlay" id="loadingOverlay">
+            <div class="loading-spinner"></div>
+            <div>加载DICOM序列并生成3D重建...</div>
+            <div style="font-size: 0.9em; color: #9ca3af; margin-top: 10px;">这可能需要一些时间</div>
+        </div>
+    </div>
+
+    <script src="viewer3d.js"></script>
+</body>
+</html>

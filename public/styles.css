@@ -254,6 +254,24 @@ h2 {
     background: #dc2626;
 }
 
+.btn-view {
+    background: var(--success-color);
+    color: white;
+}
+
+.btn-view:hover {
+    background: #059669;
+}
+
+.btn-view3d {
+    background: var(--warning-color);
+    color: white;
+}
+
+.btn-view3d:hover {
+    background: #d97706;
+}
+
 .loading,
 .empty-state {
     text-align: center;
