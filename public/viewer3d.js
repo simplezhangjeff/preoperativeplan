@@ -420,8 +420,17 @@ function showError(message) {
 window.addEventListener('resize', () => {
     Object.keys(renderers).forEach(viewType => {
         const container = renderers[viewType].domElement.parentElement;
-        cameras[viewType].aspect = container.offsetWidth / container.offsetHeight;
-        cameras[viewType].updateProjectionMatrix();
+
+        // 对于正交相机，需要更新视锥体参数
+        const camera = cameras[viewType];
+        if (camera.isOrthographicCamera) {
+            camera.left = container.offsetWidth / -2;
+            camera.right = container.offsetWidth / 2;
+            camera.top = container.offsetHeight / 2;
+            camera.bottom = container.offsetHeight / -2;
+        }
+
+        camera.updateProjectionMatrix();
         renderers[viewType].setSize(container.offsetWidth, container.offsetHeight);
     });
 });
