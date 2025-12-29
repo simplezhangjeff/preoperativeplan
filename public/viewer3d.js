@@ -1,6 +1,7 @@
 // 获取URL参数
 const urlParams = new URLSearchParams(window.location.search);
 const filename = urlParams.get('file');
+const isFolder = urlParams.get('folder') === 'true';
 
 // Three.js变量
 let renderers = {};
