@@ -89,12 +89,15 @@ function initViewPanel(containerId, viewType) {
     renderers[viewType] = renderer;
 
     // 创建控制器
-    const control = new THREE.TrackballControls(camera, renderer.domElement);
-    control.rotateSpeed = viewType === '3d' ? 5.0 : 1.5;
+    const control = new THREE.OrbitControls(camera, renderer.domElement);
+    control.enableRotate = true;
+    control.enableZoom = true;
+    control.enablePan = true;
+    control.rotateSpeed = viewType === '3d' ? 1.0 : 0.5;
     control.zoomSpeed = 1.2;
     control.panSpeed = 0.8;
-    control.staticMoving = true;
-    control.dynamicDampingFactor = 0.3;
+    control.enableDamping = true;
+    control.dampingFactor = 0.05;
     controls[viewType] = control;
 
     // 添加光源（仅3D视图）
@@ -114,21 +117,43 @@ async function loadDicomSeries(filename) {
         const loadingOverlay = document.getElementById('loadingOverlay');
         loadingOverlay.style.display = 'flex';
 
-        // 获取文件
-        const response = await fetch(`/api/download/${filename}`);
-        const arrayBuffer = await response.arrayBuffer();
+        let files = [];
+
+        if (isFolder) {
+            // 加载文件夹中的所有文件
+            const folderResponse = await fetch(`/api/folder/${filename}`);
+            const folderData = await folderResponse.json();
+
+            if (!folderData.success || !folderData.files || folderData.files.length === 0) {
+                throw new Error('文件夹中没有找到DICOM文件');
+            }
+
+            // 加载所有文件
+            for (let i = 0; i < folderData.files.length; i++) {
+                const file = folderData.files[i];
+                const fileResponse = await fetch(file.path);
+                const arrayBuffer = await fileResponse.arrayBuffer();
+                files.push({
+                    url: file.name,
+                    buffer: arrayBuffer
+                });
+            }
+        } else {
+            // 加载单个文件
+            const response = await fetch(`/api/download/${filename}`);
+            const arrayBuffer = await response.arrayBuffer();
+            files = [
+                {
+                    url: filename,
+                    buffer: arrayBuffer
+                }
+            ];
+        }
 
         // 创建AMI加载器
         loader = new AMI.VolumeLoader();
 
         // 加载DICOM数据
-        const files = [
-            {
-                url: filename,
-                buffer: arrayBuffer
-            }
-        ];
-
         loader.load(files).then(() => {
             // 获取序列
             const series = loader.data[0].mergeSeries(loader.data)[0];
