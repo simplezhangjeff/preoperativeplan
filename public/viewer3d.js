@@ -129,26 +129,20 @@ async function loadDicomSeries(filename) {
                 throw new Error('文件夹中没有找到DICOM文件');
             }
 
-            // 加载所有文件
+            // 加载所有文件并创建Blob URL
             for (let i = 0; i < folderData.files.length; i++) {
                 const file = folderData.files[i];
                 const fileResponse = await fetch(file.path);
-                const arrayBuffer = await fileResponse.arrayBuffer();
-                files.push({
-                    url: file.name,
-                    buffer: arrayBuffer
-                });
+                const blob = await fileResponse.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                files.push(blobUrl);
             }
         } else {
             // 加载单个文件
             const response = await fetch(`/api/download/${filename}`);
-            const arrayBuffer = await response.arrayBuffer();
-            files = [
-                {
-                    url: filename,
-                    buffer: arrayBuffer
-                }
-            ];
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            files = [blobUrl];
         }
 
         // 创建AMI加载器
@@ -156,9 +150,43 @@ async function loadDicomSeries(filename) {
 
         // 加载DICOM数据
         loader.load(files).then(() => {
-            // 获取序列
-            const series = loader.data[0].mergeSeries(loader.data)[0];
-            stack = series.stack[0];
+            console.log('AMI加载器数据:', loader.data);
+
+            // 检查数据是否加载成功
+            if (!loader.data || loader.data.length === 0) {
+                throw new Error('没有找到有效的DICOM数据');
+            }
+
+            console.log('加载的序列数量:', loader.data.length);
+
+            // 获取第一个序列
+            const firstSeries = loader.data[0];
+            console.log('第一个序列:', firstSeries);
+
+            // 检查序列是否有mergeSeries方法
+            if (!firstSeries.mergeSeries) {
+                // 如果没有mergeSeries方法，直接使用第一个序列
+                console.log('使用第一个序列的stack');
+                if (firstSeries.stack && firstSeries.stack.length > 0) {
+                    stack = firstSeries.stack[0];
+                } else {
+                    throw new Error('序列中没有找到stack数据');
+                }
+            } else {
+                // 使用mergeSeries合并多个序列
+                console.log('合并序列');
+                const series = firstSeries.mergeSeries(loader.data);
+                if (!series || series.length === 0) {
+                    throw new Error('合并序列失败');
+                }
+                stack = series[0].stack[0];
+            }
+
+            console.log('最终stack:', stack);
+
+            if (!stack) {
+                throw new Error('无法创建stack对象');
+            }
 
             // 设置堆栈方向
             stack.prepare();
@@ -175,6 +203,7 @@ async function loadDicomSeries(filename) {
         }).catch(error => {
             console.error('加载DICOM错误:', error);
             showError('加载DICOM文件失败: ' + error.message);
+            loadingOverlay.style.display = 'flex';
         });
 
     } catch (error) {
