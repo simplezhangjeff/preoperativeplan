@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>术前规划系统 - CT文件管理</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>术前规划系统</h1>
+            <p class="subtitle">CT影像文件上传与管理</p>
+        </header>
+
+        <main>
+            <!-- 上传区域 -->
+            <section class="upload-section">
+                <h2>上传CT文件</h2>
+                <div class="upload-container">
+                    <div class="drop-zone" id="dropZone">
+                        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <p class="drop-text">拖拽文件到此处或点击选择</p>
+                        <p class="file-types">支持格式: DICOM (.dcm), NIfTI (.nii), 图像文件 (.jpg, .png)</p>
+                        <input type="file" id="fileInput" accept=".dcm,.dicom,.nii,.nii.gz,.zip,.jpg,.jpeg,.png,.tiff,.tif" hidden>
+                    </div>
+                    <div class="upload-progress" id="uploadProgress" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                        <p class="progress-text" id="progressText">上传中...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 文件列表区域 -->
+            <section class="files-section">
+                <div class="section-header">
+                    <h2>已上传的CT文件</h2>
+                    <button class="btn-refresh" id="refreshBtn" title="刷新列表">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M23 4v6h-6"></path>
+                            <path d="M1 20v-6h6"></path>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="files-list" id="filesList">
+                    <div class="loading">加载中...</div>
+                </div>
+            </section>
+        </main>
+
+        <!-- 通知消息 -->
+        <div class="notification" id="notification"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
