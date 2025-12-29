@@ -3,16 +3,18 @@ const urlParams = new URLSearchParams(window.location.search);
 const filename = urlParams.get('file');
 const isFolder = urlParams.get('folder') === 'true';
 
-// Three.js变量
-let renderers = {};
-let scenes = {};
-let cameras = {};
-let controls = {};
-let stackHelpers = {};
+// VTK.js对象
+const vtk = window.vtk;
+let fullScreenRenderer = null;
+let renderWindow = null;
+let renderer = null;
+let volumeActor = null;
+let volumeMapper = null;
+let imageData = null;
 
-// AMI.js变量
-let loader = null;
-let stack = null;
+// MPR渲染器
+let mprRenderers = {};
+let mprRenderWindows = {};
 
 // 窗口预设
 const presets = {
@@ -21,6 +23,13 @@ const presets = {
     lung: { windowWidth: 1500, windowCenter: -600 },
     brain: { windowWidth: 80, windowCenter: 40 }
 };
+
+// 初始化Cornerstone
+cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
+cornerstoneWADOImageLoader.configure({
+    useWebWorkers: true,
+});
 
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
@@ -32,8 +41,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('fileName').textContent = decodeURIComponent(filename);
 
     try {
-        // 初始化3D查看器
-        await initViewer();
+        // 初始化查看器
+        initViewers();
 
         // 加载DICOM文件
         await loadDicomSeries(filename);
@@ -48,68 +57,77 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // 初始化查看器
-async function initViewer() {
-    // 初始化四个视图面板
-    initViewPanel('axialView', 'axial');
-    initViewPanel('sagittalView', 'sagittal');
-    initViewPanel('coronalView', 'coronal');
-    initViewPanel('render3dView', '3d');
+function initViewers() {
+    // 初始化3D体积渲染视图
+    init3DView();
 
-    // 开始渲染循环
-    animate();
+    // 初始化三个MPR视图
+    initMPRView('axialView', 2); // Z轴
+    initMPRView('sagittalView', 0); // X轴
+    initMPRView('coronalView', 1); // Y轴
 }
 
-// 初始化单个视图面板
-function initViewPanel(containerId, viewType) {
+// 初始化3D视图
+function init3DView() {
+    const container = document.getElementById('render3dView');
+
+    // 创建全屏渲染器
+    fullScreenRenderer = vtk.Rendering.Misc.vtkFullScreenRenderWindow.newInstance({
+        container: container,
+        background: [0, 0, 0]
+    });
+
+    renderer = fullScreenRenderer.getRenderer();
+    renderWindow = fullScreenRenderer.getRenderWindow();
+
+    // 设置相机
+    const camera = renderer.getActiveCamera();
+    camera.setPosition(0, 0, -500);
+    camera.setFocalPoint(0, 0, 0);
+    camera.setViewUp(0, -1, 0);
+
+    // 创建体积渲染mapper
+    volumeMapper = vtk.Rendering.Core.vtkVolumeMapper.newInstance();
+    volumeMapper.setSampleDistance(1.0);
+
+    // 创建体积actor
+    volumeActor = vtk.Rendering.Core.vtkVolume.newInstance();
+    volumeActor.setMapper(volumeMapper);
+
+    renderer.addVolume(volumeActor);
+}
+
+// 初始化MPR视图
+function initMPRView(containerId, slicingMode) {
     const container = document.getElementById(containerId);
 
-    // 创建场景
-    const scene = new THREE.Scene();
-    scenes[viewType] = scene;
-
-    // 创建相机
-    const camera = new THREE.OrthographicCamera(
-        container.offsetWidth / -2,
-        container.offsetWidth / 2,
-        container.offsetHeight / 2,
-        container.offsetHeight / -2,
-        0.1,
-        10000
-    );
-    cameras[viewType] = camera;
-
-    // 创建渲染器
-    const renderer = new THREE.WebGLRenderer({
-        antialias: true,
-        alpha: true
+    // 创建全屏渲染器
+    const fullScreenRenderWindow = vtk.Rendering.Misc.vtkFullScreenRenderWindow.newInstance({
+        container: container,
+        background: [0, 0, 0]
     });
-    renderer.setSize(container.offsetWidth, container.offsetHeight);
-    renderer.setClearColor(0x000000, 1);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    container.appendChild(renderer.domElement);
-    renderers[viewType] = renderer;
 
-    // 创建控制器
-    const control = new THREE.OrbitControls(camera, renderer.domElement);
-    control.enableRotate = true;
-    control.enableZoom = true;
-    control.enablePan = true;
-    control.rotateSpeed = viewType === '3d' ? 1.0 : 0.5;
-    control.zoomSpeed = 1.2;
-    control.panSpeed = 0.8;
-    control.enableDamping = true;
-    control.dampingFactor = 0.05;
-    controls[viewType] = control;
+    const mprRenderer = fullScreenRenderWindow.getRenderer();
+    const mprRenderWindow = fullScreenRenderWindow.getRenderWindow();
 
-    // 添加光源（仅3D视图）
-    if (viewType === '3d') {
-        const light = new THREE.DirectionalLight(0xffffff, 1);
-        light.position.set(1, 1, 1);
-        scene.add(light);
+    // 创建图像切片mapper
+    const imageMapper = vtk.Rendering.Core.vtkImageMapper.newInstance();
+    imageMapper.setSlicingMode(slicingMode);
 
-        const ambientLight = new THREE.AmbientLight(0x404040);
-        scene.add(ambientLight);
-    }
+    // 创建图像切片actor
+    const imageActor = vtk.Rendering.Core.vtkImageSlice.newInstance();
+    imageActor.setMapper(imageMapper);
+
+    mprRenderer.addActor(imageActor);
+
+    // 保存引用
+    mprRenderers[containerId] = {
+        renderer: mprRenderer,
+        renderWindow: mprRenderWindow,
+        mapper: imageMapper,
+        actor: imageActor,
+        slicingMode: slicingMode
+    };
 }
 
 // 加载DICOM序列
@@ -118,7 +136,7 @@ async function loadDicomSeries(filename) {
         const loadingOverlay = document.getElementById('loadingOverlay');
         loadingOverlay.style.display = 'flex';
 
-        let files = [];
+        let imageIds = [];
 
         if (isFolder) {
             // 加载文件夹中的所有文件
@@ -129,196 +147,170 @@ async function loadDicomSeries(filename) {
                 throw new Error('文件夹中没有找到DICOM文件');
             }
 
-            // 加载所有文件并创建Blob URL
-            for (let i = 0; i < folderData.files.length; i++) {
-                const file = folderData.files[i];
-                const fileResponse = await fetch(file.path);
-                const blob = await fileResponse.blob();
-                const blobUrl = URL.createObjectURL(blob);
-                files.push(blobUrl);
+            // 为每个文件创建imageId
+            for (const file of folderData.files) {
+                const imageId = `wadouri:${window.location.origin}${file.path}`;
+                imageIds.push(imageId);
             }
         } else {
             // 加载单个文件
-            const response = await fetch(`/api/download/${filename}`);
-            const blob = await response.blob();
-            const blobUrl = URL.createObjectURL(blob);
-            files = [blobUrl];
+            const imageId = `wadouri:${window.location.origin}/api/download/${filename}`;
+            imageIds = [imageId];
         }
 
-        // 创建AMI加载器
-        loader = new AMI.VolumeLoader();
+        console.log('加载图像数量:', imageIds.length);
 
-        // 加载DICOM数据
-        loader.load(files).then(() => {
-            console.log('AMI加载器数据:', loader.data);
+        // 加载所有图像并获取像素数据
+        const images = [];
+        for (let i = 0; i < imageIds.length; i++) {
+            const image = await cornerstone.loadImage(imageIds[i]);
+            images.push(image);
 
-            // 检查数据是否加载成功
-            if (!loader.data || loader.data.length === 0) {
-                throw new Error('没有找到有效的DICOM数据');
-            }
+            // 更新加载进度
+            const progress = Math.round((i + 1) / imageIds.length * 100);
+            loadingOverlay.querySelector('div:nth-child(2)').textContent =
+                `加载DICOM序列... (${i + 1}/${imageIds.length}) ${progress}%`;
+        }
 
-            console.log('加载的序列数量:', loader.data.length);
+        console.log('所有图像加载完成，开始构建3D数据');
 
-            // 获取第一个序列
-            const firstSeries = loader.data[0];
-            console.log('第一个序列:', firstSeries);
+        // 构建3D图像数据
+        await build3DImageData(images);
 
-            // 检查序列是否有mergeSeries方法
-            if (!firstSeries.mergeSeries) {
-                // 如果没有mergeSeries方法，直接使用第一个序列
-                console.log('使用第一个序列的stack');
-                if (firstSeries.stack && firstSeries.stack.length > 0) {
-                    stack = firstSeries.stack[0];
-                } else {
-                    throw new Error('序列中没有找到stack数据');
-                }
-            } else {
-                // 使用mergeSeries合并多个序列
-                console.log('合并序列');
-                const series = firstSeries.mergeSeries(loader.data);
-                if (!series || series.length === 0) {
-                    throw new Error('合并序列失败');
-                }
-                stack = series[0].stack[0];
-            }
-
-            console.log('最终stack:', stack);
-
-            if (!stack) {
-                throw new Error('无法创建stack对象');
-            }
-
-            // 设置堆栈方向
-            stack.prepare();
-
-            // 创建堆栈辅助对象
-            createStackHelpers();
-
-            // 定位相机
-            positionCameras();
-
-            // 隐藏加载界面
-            loadingOverlay.style.display = 'none';
-
-        }).catch(error => {
-            console.error('加载DICOM错误:', error);
-            showError('加载DICOM文件失败: ' + error.message);
-            loadingOverlay.style.display = 'flex';
-        });
+        // 隐藏加载界面
+        loadingOverlay.style.display = 'none';
 
     } catch (error) {
         console.error('加载文件错误:', error);
-        throw error;
+        showError('加载DICOM文件失败: ' + error.message);
+        document.getElementById('loadingOverlay').style.display = 'flex';
     }
 }
 
-// 创建堆栈辅助对象
-function createStackHelpers() {
-    // 轴位视图
-    const axialHelper = new AMI.StackHelper(stack);
-    axialHelper.bbox.visible = false;
-    axialHelper.border.color = 0x2563eb;
-    axialHelper.orientation = 2; // 轴位
-    scenes.axial.add(axialHelper);
-    stackHelpers.axial = axialHelper;
-
-    // 矢状位视图
-    const sagittalHelper = new AMI.StackHelper(stack);
-    sagittalHelper.bbox.visible = false;
-    sagittalHelper.border.color = 0x10b981;
-    sagittalHelper.orientation = 1; // 矢状位
-    scenes.sagittal.add(sagittalHelper);
-    stackHelpers.sagittal = sagittalHelper;
-
-    // 冠状位视图
-    const coronalHelper = new AMI.StackHelper(stack);
-    coronalHelper.bbox.visible = false;
-    coronalHelper.border.color = 0xf59e0b;
-    coronalHelper.orientation = 0; // 冠状位
-    scenes.coronal.add(coronalHelper);
-    stackHelpers.coronal = coronalHelper;
-
-    // 3D视图 - 创建体积渲染
-    create3DVolume();
-}
-
-// 创建3D体积渲染
-function create3DVolume() {
-    try {
-        // 创建简单的网格表示
-        const geometry = new THREE.BoxGeometry(
-            stack.dimensionsIJK.x,
-            stack.dimensionsIJK.y,
-            stack.dimensionsIJK.z
-        );
-
-        const material = new THREE.MeshPhongMaterial({
-            color: 0x00ff00,
-            transparent: true,
-            opacity: 0.3,
-            wireframe: false
-        });
-
-        const mesh = new THREE.Mesh(geometry, material);
-        scenes['3d'].add(mesh);
-
-        // 添加边界框
-        const edges = new THREE.EdgesGeometry(geometry);
-        const lineMaterial = new THREE.LineBasicMaterial({ color: 0x2563eb });
-        const wireframe = new THREE.LineSegments(edges, lineMaterial);
-        scenes['3d'].add(wireframe);
-
-    } catch (error) {
-        console.error('创建3D体积错误:', error);
+// 构建3D图像数据
+async function build3DImageData(images) {
+    if (images.length === 0) {
+        throw new Error('没有图像数据');
     }
-}
 
-// 定位相机
-function positionCameras() {
-    const worldbb = stack.worldBoundingBox();
-    const center = stack.worldCenter();
+    const firstImage = images[0];
+    const width = firstImage.width;
+    const height = firstImage.height;
+    const depth = images.length;
 
-    // 轴位相机
-    cameras.axial.position.set(center.x, center.y, center.z + worldbb[4] / 2);
-    cameras.axial.lookAt(center.x, center.y, center.z);
-    cameras.axial.updateProjectionMatrix();
-    controls.axial.target.set(center.x, center.y, center.z);
+    console.log('图像尺寸:', width, 'x', height, 'x', depth);
 
-    // 矢状位相机
-    cameras.sagittal.position.set(center.x + worldbb[0] / 2, center.y, center.z);
-    cameras.sagittal.lookAt(center.x, center.y, center.z);
-    cameras.sagittal.updateProjectionMatrix();
-    controls.sagittal.target.set(center.x, center.y, center.z);
+    // 创建像素数据数组
+    const pixelData = new Int16Array(width * height * depth);
 
-    // 冠状位相机
-    cameras.coronal.position.set(center.x, center.y + worldbb[2] / 2, center.z);
-    cameras.coronal.lookAt(center.x, center.y, center.z);
-    cameras.coronal.updateProjectionMatrix();
-    controls.coronal.target.set(center.x, center.y, center.z);
+    // 填充像素数据
+    for (let z = 0; z < depth; z++) {
+        const image = images[z];
+        const imagePixelData = image.getPixelData();
 
-    // 3D相机
-    cameras['3d'].position.set(
-        center.x + worldbb[0] / 2,
-        center.y + worldbb[2] / 2,
-        center.z + worldbb[4] / 2
-    );
-    cameras['3d'].lookAt(center.x, center.y, center.z);
-    cameras['3d'].updateProjectionMatrix();
-    controls['3d'].target.set(center.x, center.y, center.z);
-}
+        for (let i = 0; i < imagePixelData.length; i++) {
+            pixelData[z * width * height + i] = imagePixelData[i];
+        }
+    }
 
-// 渲染循环
-function animate() {
-    requestAnimationFrame(animate);
+    console.log('像素数据范围:', Math.min(...pixelData), '-', Math.max(...pixelData));
 
-    // 更新所有控制器
-    Object.values(controls).forEach(control => {
-        control.update();
+    // 创建VTK图像数据
+    imageData = vtk.Common.DataModel.vtkImageData.newInstance();
+    imageData.setDimensions(width, height, depth);
+
+    // 设置间距（从DICOM中获取）
+    const pixelSpacing = firstImage.rowPixelSpacing || 1.0;
+    const sliceThickness = images.length > 1 ?
+        Math.abs((images[1].imagePositionPatient?.[2] || 0) - (firstImage.imagePositionPatient?.[2] || 0)) : 1.0;
+
+    imageData.setSpacing(pixelSpacing, pixelSpacing, sliceThickness || 1.0);
+    imageData.setOrigin(0, 0, 0);
+
+    // 设置标量数据
+    const dataArray = vtk.Common.Core.vtkDataArray.newInstance({
+        numberOfComponents: 1,
+        values: pixelData
     });
+    imageData.getPointData().setScalars(dataArray);
 
-    // 渲染所有视图
-    Object.keys(renderers).forEach(viewType => {
-        renderers[viewType].render(scenes[viewType], cameras[viewType]);
+    console.log('VTK图像数据创建完成');
+
+    // 设置到体积mapper
+    volumeMapper.setInputData(imageData);
+
+    // 设置传输函数
+    setupTransferFunction();
+
+    // 设置到MPR视图
+    setupMPRViews();
+
+    // 重置相机
+    renderer.resetCamera();
+    renderWindow.render();
+
+    // 渲染所有MPR视图
+    Object.values(mprRenderers).forEach(mpr => {
+        mpr.renderer.resetCamera();
+        mpr.renderWindow.render();
+    });
+}
+
+// 设置传输函数
+function setupTransferFunction() {
+    const dataArray = imageData.getPointData().getScalars();
+    const dataRange = dataArray.getRange();
+
+    console.log('数据范围:', dataRange);
+
+    // 创建颜色传输函数
+    const colorTransferFunction = vtk.Rendering.Core.vtkColorTransferFunction.newInstance();
+
+    // 默认使用骨窗设置
+    const windowWidth = 2000;
+    const windowCenter = 400;
+    const low = windowCenter - windowWidth / 2;
+    const high = windowCenter + windowWidth / 2;
+
+    colorTransferFunction.addRGBPoint(low, 0.0, 0.0, 0.0);
+    colorTransferFunction.addRGBPoint(windowCenter, 0.9, 0.9, 0.9);
+    colorTransferFunction.addRGBPoint(high, 1.0, 1.0, 1.0);
+
+    // 创建不透明度传输函数
+    const opacityTransferFunction = vtk.Common.DataModel.vtkPiecewiseFunction.newInstance();
+
+    // 使用渐变不透明度，增强3D效果
+    opacityTransferFunction.addPoint(low, 0.0);
+    opacityTransferFunction.addPoint(low + windowWidth * 0.3, 0.0);
+    opacityTransferFunction.addPoint(windowCenter, 0.3);
+    opacityTransferFunction.addPoint(high - windowWidth * 0.2, 0.6);
+    opacityTransferFunction.addPoint(high, 0.8);
+
+    // 应用到体积
+    volumeActor.getProperty().setRGBTransferFunction(0, colorTransferFunction);
+    volumeActor.getProperty().setScalarOpacity(0, opacityTransferFunction);
+    volumeActor.getProperty().setInterpolationTypeToLinear();
+    volumeActor.getProperty().setShade(true);
+    volumeActor.getProperty().setAmbient(0.3);
+    volumeActor.getProperty().setDiffuse(0.7);
+    volumeActor.getProperty().setSpecular(0.3);
+    volumeActor.getProperty().setSpecularPower(8.0);
+}
+
+// 设置MPR视图
+function setupMPRViews() {
+    Object.values(mprRenderers).forEach(mpr => {
+        mpr.mapper.setInputData(imageData);
+
+        // 设置初始切片位置为中间
+        const dims = imageData.getDimensions();
+        const sliceIndex = Math.floor(dims[mpr.slicingMode] / 2);
+        mpr.mapper.setSlice(sliceIndex);
+
+        // 设置窗宽窗位
+        const property = mpr.actor.getProperty();
+        property.setColorWindow(2000);
+        property.setColorLevel(400);
     });
 }
 
@@ -362,40 +354,88 @@ function setupControls() {
 
     // 重置视图按钮
     document.getElementById('resetViewBtn').addEventListener('click', () => {
-        if (stack) {
-            positionCameras();
+        if (renderer) {
+            renderer.resetCamera();
+            renderWindow.render();
         }
+        Object.values(mprRenderers).forEach(mpr => {
+            mpr.renderer.resetCamera();
+            mpr.renderWindow.render();
+        });
     });
 }
 
 // 更新窗宽窗位
 function updateWindowLevel(windowWidth, windowCenter) {
-    if (stackHelpers.axial) {
-        stackHelpers.axial.slice.windowWidth = windowWidth;
-        stackHelpers.axial.slice.windowCenter = windowCenter;
-    }
-    if (stackHelpers.sagittal) {
-        stackHelpers.sagittal.slice.windowWidth = windowWidth;
-        stackHelpers.sagittal.slice.windowCenter = windowCenter;
-    }
-    if (stackHelpers.coronal) {
-        stackHelpers.coronal.slice.windowWidth = windowWidth;
-        stackHelpers.coronal.slice.windowCenter = windowCenter;
-    }
+    if (!imageData) return;
+
+    // 更新3D体积渲染的颜色传输函数
+    const colorTransferFunction = vtk.Rendering.Core.vtkColorTransferFunction.newInstance();
+
+    const low = windowCenter - windowWidth / 2;
+    const high = windowCenter + windowWidth / 2;
+
+    colorTransferFunction.addRGBPoint(low, 0.0, 0.0, 0.0);
+    colorTransferFunction.addRGBPoint(windowCenter, 0.9, 0.9, 0.9);
+    colorTransferFunction.addRGBPoint(high, 1.0, 1.0, 1.0);
+
+    volumeActor.getProperty().setRGBTransferFunction(0, colorTransferFunction);
+
+    // 更新MPR视图的窗宽窗位
+    Object.values(mprRenderers).forEach(mpr => {
+        const property = mpr.actor.getProperty();
+        property.setColorWindow(windowWidth);
+        property.setColorLevel(windowCenter);
+        mpr.renderWindow.render();
+    });
+
+    renderWindow.render();
 }
 
 // 更新3D不透明度
-function update3DOpacity(opacity) {
-    const mesh = scenes['3d'].children.find(child => child instanceof THREE.Mesh);
-    if (mesh && mesh.material) {
-        mesh.material.opacity = opacity;
-    }
+function update3DOpacity(maxOpacity) {
+    if (!imageData || !volumeActor) return;
+
+    const dataArray = imageData.getPointData().getScalars();
+    const dataRange = dataArray.getRange();
+
+    const windowWidth = parseInt(document.getElementById('windowWidthSlider').value);
+    const windowCenter = parseInt(document.getElementById('windowCenterSlider').value);
+    const low = windowCenter - windowWidth / 2;
+    const high = windowCenter + windowWidth / 2;
+
+    // 创建新的不透明度传输函数
+    const opacityTransferFunction = vtk.Common.DataModel.vtkPiecewiseFunction.newInstance();
+
+    opacityTransferFunction.addPoint(low, 0.0);
+    opacityTransferFunction.addPoint(low + windowWidth * 0.3, 0.0);
+    opacityTransferFunction.addPoint(windowCenter, maxOpacity * 0.4);
+    opacityTransferFunction.addPoint(high - windowWidth * 0.2, maxOpacity * 0.7);
+    opacityTransferFunction.addPoint(high, maxOpacity);
+
+    volumeActor.getProperty().setScalarOpacity(0, opacityTransferFunction);
+    renderWindow.render();
 }
 
 // 更新3D阈值
 function update3DThreshold(threshold) {
-    // 这里可以实现基于阈值的体积渲染
-    console.log('更新阈值:', threshold);
+    if (!imageData || !volumeActor) return;
+
+    const windowWidth = parseInt(document.getElementById('windowWidthSlider').value);
+    const windowCenter = parseInt(document.getElementById('windowCenterSlider').value);
+    const high = windowCenter + windowWidth / 2;
+
+    // 创建基于阈值的不透明度函数
+    const opacityTransferFunction = vtk.Common.DataModel.vtkPiecewiseFunction.newInstance();
+    const maxOpacity = parseFloat(document.getElementById('opacitySlider').value);
+
+    opacityTransferFunction.addPoint(threshold - 100, 0.0);
+    opacityTransferFunction.addPoint(threshold, 0.0);
+    opacityTransferFunction.addPoint(threshold + 100, maxOpacity * 0.5);
+    opacityTransferFunction.addPoint(high, maxOpacity);
+
+    volumeActor.getProperty().setScalarOpacity(0, opacityTransferFunction);
+    renderWindow.render();
 }
 
 // 应用窗口预设
@@ -418,19 +458,10 @@ function showError(message) {
 
 // 窗口调整大小
 window.addEventListener('resize', () => {
-    Object.keys(renderers).forEach(viewType => {
-        const container = renderers[viewType].domElement.parentElement;
-
-        // 对于正交相机，需要更新视锥体参数
-        const camera = cameras[viewType];
-        if (camera.isOrthographicCamera) {
-            camera.left = container.offsetWidth / -2;
-            camera.right = container.offsetWidth / 2;
-            camera.top = container.offsetHeight / 2;
-            camera.bottom = container.offsetHeight / -2;
-        }
-
-        camera.updateProjectionMatrix();
-        renderers[viewType].setSize(container.offsetWidth, container.offsetHeight);
+    if (renderWindow) {
+        renderWindow.render();
+    }
+    Object.values(mprRenderers).forEach(mpr => {
+        mpr.renderWindow.render();
     });
 });
