@@ -555,11 +555,13 @@ function isDicomFile(filename) {
 }
 
 // 2D查看文件
-function viewFile(filename, originalName) {
-    window.open(`viewer.html?file=${encodeURIComponent(filename)}`, '_blank');
+function viewFile(filename, originalName, isFolder = false) {
+    const url = `viewer.html?file=${encodeURIComponent(filename)}&folder=${isFolder}`;
+    window.open(url, '_blank');
 }
 
 // 3D查看文件
-function view3DFile(filename, originalName) {
-    window.open(`viewer3d.html?file=${encodeURIComponent(filename)}`, '_blank');
+function view3DFile(filename, originalName, isFolder = false) {
+    const url = `viewer3d.html?file=${encodeURIComponent(filename)}&folder=${isFolder}`;
+    window.open(url, '_blank');
 }

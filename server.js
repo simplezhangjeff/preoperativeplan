@@ -278,6 +278,70 @@ app.get('/api/files', (req, res) => {
     }
 });
 
+// 获取文件夹内的文件列表
+app.get('/api/folder/:foldername', (req, res) => {
+    try {
+        const foldername = req.params.foldername;
+        const folderPath = path.join(uploadDir, foldername);
+        const metadataPath = path.join(uploadDir, foldername + '.json');
+
+        // 检查是否为文件夹
+        if (!fs.existsSync(metadataPath)) {
+            return res.status(404).json({ error: '文件夹不存在' });
+        }
+
+        const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+
+        if (!metadata.isFolder) {
+            return res.status(400).json({ error: '不是文件夹' });
+        }
+
+        // 读取文件夹中的所有文件
+        const files = [];
+        if (fs.existsSync(folderPath)) {
+            const fileList = fs.readdirSync(folderPath);
+            fileList.forEach(file => {
+                const filePath = path.join(folderPath, file);
+                const stats = fs.statSync(filePath);
+                if (stats.isFile()) {
+                    files.push({
+                        name: file,
+                        size: stats.size,
+                        path: `/api/folder-file/${foldername}/${encodeURIComponent(file)}`
+                    });
+                }
+            });
+        }
+
+        res.json({
+            success: true,
+            folder: metadata,
+            files: files
+        });
+    } catch (error) {
+        console.error('获取文件夹错误:', error);
+        res.status(500).json({ error: '获取文件夹失败' });
+    }
+});
+
+// 下载文件夹中的单个文件
+app.get('/api/folder-file/:foldername/:filename', (req, res) => {
+    try {
+        const foldername = req.params.foldername;
+        const filename = decodeURIComponent(req.params.filename);
+        const filepath = path.join(uploadDir, foldername, filename);
+
+        if (!fs.existsSync(filepath)) {
+            return res.status(404).json({ error: '文件不存在' });
+        }
+
+        res.sendFile(filepath);
+    } catch (error) {
+        console.error('下载错误:', error);
+        res.status(500).json({ error: '文件下载失败' });
+    }
+});
+
 // 下载文件
 app.get('/api/download/:filename', (req, res) => {
     try {

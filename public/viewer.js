@@ -1,8 +1,11 @@
 // 获取URL参数
 const urlParams = new URLSearchParams(window.location.search);
 const filename = urlParams.get('file');
+const isFolder = urlParams.get('folder') === 'true';
 
 let currentImageId = null;
+let currentImageIds = []; // 序列图像ID列表
+let currentImageIndex = 0;
 let element = null;
 
 // 初始化
@@ -18,8 +21,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 初始化Cornerstone
         initializeCornerstone();
 
-        // 加载DICOM文件
-        await loadDicomFile(filename);
+        // 加载DICOM文件或序列
+        if (isFolder) {
+            await loadDicomSeries(filename);
+        } else {
+            await loadDicomFile(filename);
+        }
 
         // 设置工具栏
         setupToolbar();
@@ -102,6 +109,113 @@ async function loadDicomFile(filename) {
         console.error('加载DICOM文件错误:', error);
         throw error;
     }
+}
+
+// 加载DICOM序列
+async function loadDicomSeries(foldername) {
+    try {
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        loadingOverlay.style.display = 'flex';
+        loadingOverlay.innerHTML = `
+            <div>加载DICOM序列中...</div>
+            <div style="font-size: 0.9em; color: #9ca3af; margin-top: 10px;">正在加载多个文件</div>
+        `;
+
+        // 获取文件夹信息
+        const response = await fetch(`/api/folder/${foldername}`);
+        const data = await response.json();
+
+        if (!data.success || !data.files || data.files.length === 0) {
+            throw new Error('文件夹中没有找到DICOM文件');
+        }
+
+        // 加载所有DICOM文件
+        currentImageIds = [];
+        for (let i = 0; i < data.files.length; i++) {
+            const file = data.files[i];
+            const fileResponse = await fetch(file.path);
+            const arrayBuffer = await fileResponse.arrayBuffer();
+            const blob = new Blob([arrayBuffer], { type: 'application/dicom' });
+            const imageId = cornerstoneWADOImageLoader.wadouri.fileManager.add(blob);
+            currentImageIds.push(imageId);
+        }
+
+        if (currentImageIds.length === 0) {
+            throw new Error('未能加载任何DICOM文件');
+        }
+
+        // 显示第一张图像
+        currentImageIndex = 0;
+        currentImageId = currentImageIds[currentImageIndex];
+        const image = await cornerstone.loadImage(currentImageId);
+        cornerstone.displayImage(element, image);
+
+        // 隐藏加载界面
+        loadingOverlay.style.display = 'none';
+
+        // 更新信息显示
+        updateImageInfo(image);
+        updateDicomInfo(image);
+
+        // 显示序列信息
+        document.getElementById('fileName').textContent = `${decodeURIComponent(foldername)} (${currentImageIndex + 1}/${currentImageIds.length})`;
+
+        // 添加键盘导航
+        setupSeriesNavigation();
+
+        // 启用默认工具（窗宽窗位）
+        activateTool('Wwwc');
+
+        // 监听图像更新
+        element.addEventListener('cornerstoneimagerendered', onImageRendered);
+
+    } catch (error) {
+        console.error('加载DICOM序列错误:', error);
+        throw error;
+    }
+}
+
+// 设置序列导航
+function setupSeriesNavigation() {
+    // 键盘导航
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+            e.preventDefault();
+            navigateImage(-1);
+        } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            navigateImage(1);
+        }
+    });
+
+    // 鼠标滚轮导航
+    element.addEventListener('wheel', (e) => {
+        if (e.ctrlKey || currentImageIds.length > 1) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 1 : -1;
+            navigateImage(delta);
+        }
+    });
+}
+
+// 导航到指定图像
+async function navigateImage(delta) {
+    if (currentImageIds.length <= 1) return;
+
+    currentImageIndex += delta;
+    if (currentImageIndex < 0) currentImageIndex = currentImageIds.length - 1;
+    if (currentImageIndex >= currentImageIds.length) currentImageIndex = 0;
+
+    currentImageId = currentImageIds[currentImageIndex];
+    const image = await cornerstone.loadImage(currentImageId);
+    cornerstone.displayImage(element, image);
+
+    // 更新序列信息
+    const fileName = document.getElementById('fileName').textContent.split(' (')[0];
+    document.getElementById('fileName').textContent = `${fileName} (${currentImageIndex + 1}/${currentImageIds.length})`;
+
+    updateImageInfo(image);
+    updateDicomInfo(image);
 }
 
 // 更新图像信息显示
