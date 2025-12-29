@@ -68,6 +68,54 @@ h2 {
     color: var(--text-primary);
 }
 
+/* 上传选项按钮 */
+.upload-options {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.upload-option-btn {
+    flex: 1;
+    min-width: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
+    background: var(--bg-color);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.95em;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: all 0.3s ease;
+}
+
+.upload-option-btn svg {
+    width: 20px;
+    height: 20px;
+    stroke-width: 2;
+}
+
+.upload-option-btn:hover {
+    border-color: var(--primary-color);
+    background: rgba(37, 99, 235, 0.05);
+    color: var(--text-primary);
+}
+
+.upload-option-btn.active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
+.upload-option-btn.active svg {
+    color: white;
+}
+
 /* 上传区域样式 */
 .upload-container {
     position: relative;
@@ -201,6 +249,15 @@ h2 {
     flex-shrink: 0;
 }
 
+.folder-icon {
+    background: var(--warning-color);
+    font-size: 24px;
+}
+
+.folder-item {
+    border-left: 4px solid var(--warning-color);
+}
+
 .file-info {
     flex: 1;
     min-width: 0;
@@ -211,6 +268,20 @@ h2 {
     color: var(--text-primary);
     margin-bottom: 5px;
     word-break: break-all;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.badge {
+    display: inline-block;
+    background: var(--success-color);
+    color: white;
+    font-size: 0.7em;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 500;
 }
 
 .file-meta {

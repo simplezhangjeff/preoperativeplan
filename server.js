@@ -3,6 +3,7 @@ const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const AdmZip = require('adm-zip');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -101,6 +102,163 @@ app.post('/api/upload', upload.single('ctFile'), (req, res) => {
     }
 });
 
+// 上传DICOM文件夹
+app.post('/api/upload-folder', upload.array('files', 1000), (req, res) => {
+    try {
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: '没有上传文件' });
+        }
+
+        const folderName = req.body.folderName || 'dicom-series';
+        const timestamp = Date.now();
+        const folderDir = path.join(uploadDir, `${folderName}-${timestamp}`);
+
+        // 创建文件夹
+        if (!fs.existsSync(folderDir)) {
+            fs.mkdirSync(folderDir, { recursive: true });
+        }
+
+        // 移动所有文件到文件夹
+        const fileInfos = req.files.map(file => {
+            const newPath = path.join(folderDir, file.originalname);
+            fs.renameSync(file.path, newPath);
+            return {
+                originalName: file.originalname,
+                size: file.size,
+                path: newPath
+            };
+        });
+
+        // 计算总大小
+        const totalSize = fileInfos.reduce((sum, f) => sum + f.size, 0);
+
+        const folderInfo = {
+            id: `${folderName}-${timestamp}`,
+            originalName: folderName,
+            filename: `${folderName}-${timestamp}`,
+            isFolder: true,
+            fileCount: req.files.length,
+            size: totalSize,
+            uploadDate: new Date().toISOString(),
+            path: folderDir,
+            files: fileInfos.map(f => f.originalName)
+        };
+
+        // 保存文件夹元数据
+        const metadataPath = path.join(uploadDir, `${folderName}-${timestamp}.json`);
+        fs.writeFileSync(metadataPath, JSON.stringify(folderInfo, null, 2));
+
+        res.json({
+            success: true,
+            message: `文件夹上传成功 (${req.files.length} 个文件)`,
+            folder: {
+                id: folderInfo.id,
+                originalName: folderInfo.originalName,
+                fileCount: folderInfo.fileCount,
+                size: folderInfo.size,
+                uploadDate: folderInfo.uploadDate
+            }
+        });
+    } catch (error) {
+        console.error('上传文件夹错误:', error);
+        res.status(500).json({ error: '文件夹上传失败: ' + error.message });
+    }
+});
+
+// 上传ZIP文件并自动解压
+app.post('/api/upload-zip', upload.single('zipFile'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: '没有上传文件' });
+        }
+
+        const zipPath = req.file.path;
+        const zipName = path.basename(req.file.originalname, '.zip');
+        const timestamp = Date.now();
+        const extractDir = path.join(uploadDir, `${zipName}-${timestamp}`);
+
+        // 创建解压目录
+        if (!fs.existsSync(extractDir)) {
+            fs.mkdirSync(extractDir, { recursive: true });
+        }
+
+        // 解压ZIP文件
+        const zip = new AdmZip(zipPath);
+        zip.extractAllTo(extractDir, true);
+
+        // 删除ZIP文件
+        fs.unlinkSync(zipPath);
+
+        // 扫描解压后的文件
+        const dicomFiles = [];
+        let totalSize = 0;
+
+        function scanDirectory(dir) {
+            const files = fs.readdirSync(dir);
+            files.forEach(file => {
+                const filepath = path.join(dir, file);
+                const stats = fs.statSync(filepath);
+
+                if (stats.isDirectory()) {
+                    scanDirectory(filepath);
+                } else if (
+                    file.endsWith('.dcm') ||
+                    file.endsWith('.dicom') ||
+                    file.endsWith('.nii') ||
+                    file.endsWith('.nii.gz')
+                ) {
+                    dicomFiles.push({
+                        name: file,
+                        path: filepath,
+                        size: stats.size
+                    });
+                    totalSize += stats.size;
+                }
+            });
+        }
+
+        scanDirectory(extractDir);
+
+        if (dicomFiles.length === 0) {
+            // 删除空文件夹
+            fs.rmSync(extractDir, { recursive: true, force: true });
+            return res.status(400).json({ error: 'ZIP文件中没有找到DICOM文件' });
+        }
+
+        const folderInfo = {
+            id: `${zipName}-${timestamp}`,
+            originalName: zipName,
+            filename: `${zipName}-${timestamp}`,
+            isFolder: true,
+            fromZip: true,
+            fileCount: dicomFiles.length,
+            size: totalSize,
+            uploadDate: new Date().toISOString(),
+            path: extractDir,
+            files: dicomFiles.map(f => f.name)
+        };
+
+        // 保存元数据
+        const metadataPath = path.join(uploadDir, `${zipName}-${timestamp}.json`);
+        fs.writeFileSync(metadataPath, JSON.stringify(folderInfo, null, 2));
+
+        res.json({
+            success: true,
+            message: `ZIP解压成功 (${dicomFiles.length} 个DICOM文件)`,
+            folder: {
+                id: folderInfo.id,
+                originalName: folderInfo.originalName,
+                fileCount: folderInfo.fileCount,
+                size: folderInfo.size,
+                uploadDate: folderInfo.uploadDate
+            }
+        });
+    } catch (error) {
+        console.error('ZIP上传错误:', error);
+        res.status(500).json({ error: 'ZIP文件处理失败: ' + error.message });
+    }
+});
+
 // 获取所有已上传的文件列表
 app.get('/api/files', (req, res) => {
     try {
@@ -145,27 +303,41 @@ app.get('/api/download/:filename', (req, res) => {
     }
 });
 
-// 删除文件
+// 删除文件或文件夹
 app.delete('/api/delete/:filename', (req, res) => {
     try {
         const filename = req.params.filename;
-        const filepath = path.join(uploadDir, filename);
-        const metadataPath = filepath + '.json';
+        const metadataPath = path.join(uploadDir, filename + '.json');
 
-        if (!fs.existsSync(filepath)) {
+        // 检查元数据文件是否存在
+        if (!fs.existsSync(metadataPath)) {
             return res.status(404).json({ error: '文件不存在' });
         }
 
-        // 删除文件和元数据
-        fs.unlinkSync(filepath);
-        if (fs.existsSync(metadataPath)) {
-            fs.unlinkSync(metadataPath);
+        // 读取元数据
+        const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+
+        if (metadata.isFolder) {
+            // 删除文件夹及其内容
+            const folderPath = path.join(uploadDir, filename);
+            if (fs.existsSync(folderPath)) {
+                fs.rmSync(folderPath, { recursive: true, force: true });
+            }
+        } else {
+            // 删除单个文件
+            const filepath = path.join(uploadDir, filename);
+            if (fs.existsSync(filepath)) {
+                fs.unlinkSync(filepath);
+            }
         }
 
-        res.json({ success: true, message: '文件删除成功' });
+        // 删除元数据
+        fs.unlinkSync(metadataPath);
+
+        res.json({ success: true, message: metadata.isFolder ? '文件夹删除成功' : '文件删除成功' });
     } catch (error) {
         console.error('删除错误:', error);
-        res.status(500).json({ error: '文件删除失败' });
+        res.status(500).json({ error: '删除失败: ' + error.message });
     }
 });
 
